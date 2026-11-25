@@ -22,9 +22,9 @@
 | --- | --- |
 | [ticket_sources.jsonl](data/processed/ticket_sources.jsonl) | 200 записей с решёнными тикетами |
 | [document_sources.jsonl](data/processed/document_sources.jsonl) | 130 разделов документации |
-| [corpus_chunks.jsonl](data/processed/corpus_chunks.jsonl) | 553 чанка текущего корпуса, из них 200 из тикетов и 353 из документации |
-| [data/processed/bm25](data/processed/bm25/) | Лексический словарь и статистика BM25 для конкретной версии гибридной коллекции |
-| [data/eval](data/eval/) | Набор из 14 вопросов и ранее сохранённые отчёты `baseline.jsonl`, `reranked.jsonl`, `pilot.jsonl` |
+| `corpus_chunks.jsonl` | Генерируется при индексации. Текущий корпус даёт 553 чанка, из них 200 из тикетов и 353 из документации |
+| `data/processed/bm25/` | Генерируемый лексический словарь и статистика BM25 для конкретной версии гибридной коллекции |
+| [data/eval](data/eval/) | Наборы контрольных вопросов на 14 и 100 кейсов. Отчёты прогонов сохраняются локально |
 
 `data/processed/sources.jsonl` и `data/processed/chunks.jsonl` относятся к раннему тестовому набору. Полный корпус строится из двух экспортов из таблицы.
 
