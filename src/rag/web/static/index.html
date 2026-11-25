@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="ru">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#222a35">
+    <title>ИИ-помощник · Поддержка Диспетчер</title>
+    <link rel="icon" href="data:,">
+    <link rel="stylesheet" href="/static/styles.css">
+    <script src="/static/app.js" defer></script>
+</head>
+<body>
+    <header class="topbar">
+        <div class="topbar-content">
+            <div class="brand">
+                <span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span>
+                <span>
+                    <strong>Диспетчер</strong>
+                    <span class="brand-caption">Техническая поддержка</span>
+                </span>
+            </div>
+            <div class="topbar-actions">
+                <span class="connection" id="connection" role="status">Проверяем базу знаний</span>
+                <button class="reset-button" id="reset-chat" type="button" disabled>Новый чат</button>
+            </div>
+        </div>
+    </header>
+
+    <main class="workspace">
+        <section class="chat-panel" aria-labelledby="chat-title">
+            <header class="chat-header">
+                <h1 id="chat-title">ИИ-помощник</h1>
+                <p>Задайте вопрос по работе «Цифра. Диспетчер».</p>
+                <label id="history-control" class="history-control" hidden>
+                    Диалог
+                    <select id="conversation-select"></select>
+                </label>
+                <p id="history-notice" class="history-notice" role="status" hidden></p>
+            </header>
+
+            <div class="chat-body" id="chat-body">
+                <section class="examples" id="examples" aria-label="Примеры вопросов">
+                    <h2>Примеры вопросов</h2>
+                    <div class="example-grid">
+                        <button type="button" class="example" data-question="Почему в архиве значения есть, а на оперативном экране пусто?">
+                            <strong>Данные на экране</strong>
+                            <span>Почему в архиве есть значения, а на экране пусто?</span>
+                        </button>
+                        <button type="button" class="example" data-question="Почему участок не попал в сводный график?">
+                            <strong>Сводный график</strong>
+                            <span>Почему участок не попал в график?</span>
+                        </button>
+                        <button type="button" class="example" data-question="Что проверить при расхождении данных между витриной и источником?">
+                            <strong>Расхождение данных</strong>
+                            <span>Что сверить между витриной и источником?</span>
+                        </button>
+                    </div>
+                </section>
+                <div class="chat-log" id="chat-log" role="log" aria-label="Диалог"></div>
+            </div>
+
+            <form class="composer" id="composer">
+                <label class="visually-hidden" for="question">Ваш вопрос</label>
+                <textarea id="question" name="question" rows="2" maxlength="4000" placeholder="Опишите, что произошло…" required></textarea>
+                <div class="composer-actions">
+                    <span class="keyboard-hint">Enter — отправить · Shift+Enter — новая строка</span>
+                    <button class="send-button" type="submit" id="send-question">Отправить</button>
+                </div>
+            </form>
+        </section>
+
+        <aside class="sources-panel" id="sources-panel" aria-labelledby="sources-title">
+            <header class="sources-header">
+                <h2 id="sources-title">Источники</h2>
+                <span class="source-count" id="source-count" hidden></span>
+            </header>
+            <div class="sources-list" id="sources-list">
+                <p class="empty-sources">Здесь появятся фрагменты тикетов и справочника, на которые ссылается ответ.</p>
+            </div>
+        </aside>
+    </main>
+</body>
+</html>

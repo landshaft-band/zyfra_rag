@@ -1,0 +1,21 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: rag
+resources:
+  - namespace.yaml
+  - postgres.yaml
+  - redis.yaml
+  - kafka.yaml
+  - qdrant.yaml
+  - storage.yaml
+configMapGenerator:
+  - name: rag-config
+    literals:
+      - RAG_POSTGRES_DSN=host=postgres port=5432 dbname=rag user=rag
+      - RAG_KAFKA_BOOTSTRAP_SERVERS=kafka:29092
+      - RAG_REDIS_URL=redis://redis:6379/0
+      - RAG_QUEUE_NAME=rag.jobs.v1
+      - OMP_NUM_THREADS=4
+      - MKL_NUM_THREADS=4
+generatorOptions:
+  disableNameSuffixHash: true

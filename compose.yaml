@@ -1,0 +1,176 @@
+name: rag-local
+
+x-rag: &rag
+  image: rag-local-app:latest
+  build: .
+  profiles: ["app"]
+  init: true
+  environment:
+    RAG_POSTGRES_DSN: "host=postgres port=5432 dbname=rag user=rag"
+    PGPASSWORD: ${RAG_POSTGRES_PASSWORD:-rag-local-dev}
+    RAG_KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+    RAG_REDIS_URL: redis://redis:6379/0
+    RAG_QUEUE_NAME: ${RAG_QUEUE_NAME:-rag.jobs.v1}
+    HF_HUB_OFFLINE: ${RAG_HF_OFFLINE:-0}
+
+services:
+  postgres:
+    image: postgres:17
+    environment:
+      POSTGRES_DB: rag
+      POSTGRES_USER: rag
+      POSTGRES_PASSWORD: ${RAG_POSTGRES_PASSWORD:-rag-local-dev}
+    ports:
+      - "127.0.0.1:${RAG_POSTGRES_PORT:-5433}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U rag -d rag"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+
+  qdrant:
+    image: qdrant/qdrant:v1.13.2
+    ports:
+      - "127.0.0.1:${RAG_QDRANT_PORT:-6333}:6333"
+    volumes:
+      - qdrant_data:/qdrant/storage
+
+  redis:
+    image: redis:7.4-alpine
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory-policy", "noeviction"]
+    ports:
+      - "127.0.0.1:${RAG_REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+
+  kafka:
+    image: apache/kafka:4.1.1
+    environment:
+      CLUSTER_ID: MkU3OEVBNTcwNTJENDM2Qk
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: INTERNAL://:29092,EXTERNAL://:9092,CONTROLLER://:9093
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka:29092,EXTERNAL://127.0.0.1:${RAG_KAFKA_PORT:-9092}
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT,CONTROLLER:PLAINTEXT
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+      KAFKA_LOG_DIRS: /var/lib/kafka/data
+    ports:
+      - "127.0.0.1:${RAG_KAFKA_PORT:-9092}:9092"
+    volumes:
+      - kafka_data:/var/lib/kafka/data
+    healthcheck:
+      test: ["CMD", "/opt/kafka/bin/kafka-broker-api-versions.sh", "--bootstrap-server", "localhost:29092"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 15s
+
+  migrate:
+    <<: *rag
+    command: ["migrate"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  queue-init:
+    <<: *rag
+    command: ["queue-init"]
+    depends_on:
+      kafka:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  index-init:
+    <<: *rag
+    command: ["--qdrant-url", "http://qdrant:6333", "prepare-index", "--source-directory", "/app/corpus"]
+    depends_on:
+      qdrant:
+        condition: service_started
+    volumes:
+      - type: bind
+        source: ${RAG_CORPUS_DIR:-./data/processed}
+        target: /app/corpus
+        read_only: true
+        bind:
+          create_host_path: false
+      - index_artifacts:/app/data/processed
+      - e5_cache:/home/rag/.cache/huggingface
+
+  api:
+    <<: *rag
+    command: ["--qdrant-url", "http://qdrant:6333", "serve", "--host", "0.0.0.0"]
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${RAG_WEB_PORT:-8002}:8000"
+    volumes:
+      - index_artifacts:/app/data/processed:ro
+      - e5_cache:/home/rag/.cache/huggingface
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      index-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "python", "-c", "from urllib.request import urlopen; urlopen('http://127.0.0.1:8000/api/health', timeout=2).close()"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  publisher:
+    <<: *rag
+    command: ["queue-publisher"]
+    restart: unless-stopped
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      queue-init:
+        condition: service_completed_successfully
+
+  dispatcher:
+    <<: *rag
+    command: ["queue-dispatcher"]
+    restart: unless-stopped
+    depends_on:
+      queue-init:
+        condition: service_completed_successfully
+
+  worker:
+    <<: *rag
+    command: ["--qdrant-url", "http://qdrant:6333", "queue-worker"]
+    restart: unless-stopped
+    env_file:
+      - path: ${RAG_MODEL_ENV_FILE:-./.env.worker}
+        required: false
+    volumes:
+      - index_artifacts:/app/data/processed:ro
+      - e5_cache:/home/rag/.cache/huggingface
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      queue-init:
+        condition: service_completed_successfully
+      index-init:
+        condition: service_completed_successfully
+
+volumes:
+  postgres_data:
+  qdrant_data:
+  redis_data:
+  kafka_data:
+  index_artifacts:
+  e5_cache:

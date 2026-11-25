@@ -1,0 +1,86 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: migrate
+spec:
+  backoffLimit: 3
+  activeDeadlineSeconds: 180
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: migrate
+          image: rag-local-app:k8s-dev
+          imagePullPolicy: Never
+          args: ["migrate"]
+          envFrom:
+            - configMapRef:
+                name: rag-config
+          env:
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: rag-postgres
+                  key: password
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: queue-init
+spec:
+  backoffLimit: 4
+  activeDeadlineSeconds: 240
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: queue-init
+          image: rag-local-app:k8s-dev
+          imagePullPolicy: Never
+          args: ["queue-init"]
+          envFrom:
+            - configMapRef:
+                name: rag-config
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: index-init
+spec:
+  backoffLimit: 2
+  activeDeadlineSeconds: 1800
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: index-init
+          image: rag-local-app:k8s-dev
+          imagePullPolicy: Never
+          args: ["--qdrant-url", "http://qdrant:6333", "prepare-index", "--source-directory", "/app/corpus"]
+          envFrom:
+            - configMapRef:
+                name: rag-config
+          resources:
+            requests:
+              cpu: "1"
+              memory: 1536Mi
+            limits:
+              memory: 4Gi
+          volumeMounts:
+            - name: corpus
+              mountPath: /app/corpus
+              readOnly: true
+            - name: index
+              mountPath: /app/data/processed
+            - name: model-cache
+              mountPath: /home/rag/.cache/huggingface
+      volumes:
+        - name: corpus
+          configMap:
+            name: rag-corpus
+        - name: index
+          persistentVolumeClaim:
+            claimName: rag-index
+        - name: model-cache
+          persistentVolumeClaim:
+            claimName: rag-e5-cache
