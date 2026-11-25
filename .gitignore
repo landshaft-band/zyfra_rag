@@ -11,4 +11,5 @@ __pycache__/
 /data/processed/corpus_chunks.jsonl
 /data/processed/sources.jsonl
 /data/eval/*.jsonl
-!/data/eval/questions*.jsonl
+!/data/eval/questions.jsonl
+!/data/eval/questions_v2.jsonl
