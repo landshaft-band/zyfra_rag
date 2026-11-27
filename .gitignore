@@ -1,0 +1,15 @@
+.idea/
+.venv/
+__pycache__/
+*.py[cod]
+.env
+.env.*
+*.env
+
+/data/processed/bm25/
+/data/processed/chunks.jsonl
+/data/processed/corpus_chunks.jsonl
+/data/processed/sources.jsonl
+/data/eval/*.jsonl
+!/data/eval/questions.jsonl
+!/data/eval/questions_v2.jsonl
