@@ -11,6 +11,9 @@ x-rag: &rag
     RAG_KAFKA_BOOTSTRAP_SERVERS: kafka:29092
     RAG_REDIS_URL: redis://redis:6379/0
     RAG_QUEUE_NAME: ${RAG_QUEUE_NAME:-rag.jobs.v1}
+    RAG_GUARDRAILS_MODE: ${RAG_GUARDRAILS_MODE:-enforce}
+    RAG_TRACE_CONTENT: ${RAG_TRACE_CONTENT:-false}
+    RAG_MODEL_PRICES_JSON: ${RAG_MODEL_PRICES_JSON:-}
     HF_HUB_OFFLINE: ${RAG_HF_OFFLINE:-0}
 
 services:
@@ -113,6 +116,9 @@ services:
 
   api:
     <<: *rag
+    env_file:
+      - path: ${RAG_API_TRACE_ENV_FILE:-./.env.api}
+        required: false
     command: ["--qdrant-url", "http://qdrant:6333", "serve", "--host", "0.0.0.0"]
     restart: unless-stopped
     ports:

@@ -9,6 +9,7 @@ from ..generation.client import ChatClient
 from ..generation.context import MAX_CONTEXT_CHUNKS, build_context
 from ..generation.service import answer_from_context
 from ..observability import observation
+from ..retrieval.deduplication import RRF_POOL_LIMIT, deduplicate_hits
 from ..retrieval.hybrid import BRANCH_LIMIT, HybridRetriever, reciprocal_rank_fusion
 from .rerank import RerankSettings, rerank_or_fallback
 
@@ -62,13 +63,21 @@ def evaluate(
             start = perf_counter()
             with observation("hybrid-search", "retriever") as search:
                 dense, sparse = retriever.search_branches(question, BRANCH_LIMIT)
-                candidates = reciprocal_rank_fusion(dense, sparse, max(20, settings.top_n) if settings else 20)
-                search(metadata={"count": len(candidates), "ids": [str(hit.point.id) for hit in candidates]})
+                raw = reciprocal_rank_fusion(dense, sparse, 20)
+                pool = reciprocal_rank_fusion(dense, sparse, RRF_POOL_LIMIT, retriever.search_titles(question))
+                unique = deduplicate_hits(pool, max(20, settings.top_n) if settings else 20)
+                candidates = unique.hits
+                search(metadata={
+                    "count": len(candidates), "ids": [str(hit.point.id) for hit in candidates],
+                    "exact_duplicates_removed": unique.exact_removed,
+                    "near_duplicates_removed": unique.near_removed,
+                })
             retrieval_seconds = perf_counter() - start
             expected = case["sources"]
             ranks = {
                 "dense": _first_rank(dense, expected),
                 "bm25": _first_rank(sparse, expected),
+                "rrf_raw": _first_rank([hit.point for hit in raw], expected),
                 "rrf": _first_rank([hit.point for hit in candidates[:20]], expected),
             }
             variants = {"rrf": candidates[:MAX_CONTEXT_CHUNKS]}

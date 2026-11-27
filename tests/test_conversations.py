@@ -12,10 +12,12 @@ from fastapi.testclient import TestClient
 from psycopg import sql
 from psycopg.conninfo import make_conninfo
 
+from rag.retrieval.deduplication import RRF_POOL_LIMIT
 from rag.conversations.storage import ConversationStore, migrate
-from rag.generation.client import ChatClient, ModelAPIError
+from rag.generation.answer import AnswerItem
+from rag.generation.client import SYSTEM_PROMPT, ChatClient, ModelAPIError
 from rag.generation.history import REWRITE_PROMPT
-from rag.generation.service import AskService
+from rag.generation.service import AskResult, AskService
 from rag.retrieval.hybrid import HybridHit
 from rag.web.app import create_app
 from rag.web.conversations import OWNER_COOKIE, owner_digest
@@ -54,6 +56,32 @@ class PostgresConversationTests(unittest.TestCase):
     def test_migrations_can_be_reapplied(self):
         self.assertIn("001_conversations.sql", self.first_migration)
         self.assertEqual(migrate(self.dsn), ())
+
+    def test_enforced_output_only_persists_the_replacement(self):
+        retriever = Mock()
+        retriever.search.return_value = []
+        flagged = AskResult("answer", (AnswerItem(SYSTEM_PROMPT, ("S1",)),))
+        with (
+            patch.dict(os.environ, {
+                "RAG_POSTGRES_DSN": self.dsn, "RAG_GUARDRAILS_MODE": "enforce", "RAG_RERANK_ENABLED": "false",
+            }),
+            patch("rag.web.app.QdrantClient"),
+            patch("rag.web.app.HybridRetriever", return_value=retriever),
+            patch("rag.generation.service.answer_from_context", return_value=flagged),
+            TestClient(create_app("http://unused", Path("unused"))) as web,
+        ):
+            path = f"/api/conversations/{web.post('/api/conversations').json()['id']}"
+            response = web.post(f"{path}/turns", json={"question": "Как открыть архив?"})
+            self.assertEqual(response.status_code, 200, response.text)
+            self.assertEqual(response.json()["status"], "blocked")
+            self.assertEqual(response.json()["items"], [])
+            history = web.get(path).json()
+            self.assertEqual(history["messages"][1]["result"], response.json())
+            self.assertEqual(history["messages"][1]["content"], "")
+            with patch("rag.generation.service.standalone_question") as rewrite:
+                response = web.post(f"{path}/turns", json={"question": "Где посмотреть журнал?"})
+                self.assertEqual(response.status_code, 200, response.text)
+                rewrite.assert_not_called()
 
     def test_messages_are_ordered_across_concurrent_writes(self):
         conversation = self.store.create("owner-a")
@@ -123,7 +151,7 @@ class PostgresConversationTests(unittest.TestCase):
             self.assertEqual(model.call_count, 1)
             self.assertEqual(web.post(f"{url}/turns", json={"question": follow_up}).status_code, 200)
             self.assertEqual(model.call_count, 3)
-            retriever.search.assert_called_with(resolved, 8)
+            retriever.search.assert_called_with(resolved, RRF_POOL_LIMIT)
             messages = web.get(url).json()["messages"]
             self.assertEqual(messages[2]["content"], follow_up)
             self.assertEqual(messages[3]["result"]["sources"][0]["file_name"], "archive.md")
@@ -180,4 +208,4 @@ class QuestionRewriteTests(unittest.TestCase):
                 patch.object(ChatClient, "chat", side_effect=[failure]),
             ):
                 AskService(retriever).ask("А ночью?", history=(("user", "Покажи журнал"),))
-            retriever.search.assert_called_with("А ночью?", 8)
+            retriever.search.assert_called_with("А ночью?", RRF_POOL_LIMIT)

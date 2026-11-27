@@ -37,6 +37,8 @@ class Claim:
     lease_id: UUID
     question: str
     context: TurnContext
+    request_id: UUID
+    input_guard_mode: str | None
 
 
 @dataclass(frozen=True)
@@ -64,7 +66,9 @@ class JobStore:
     def __init__(self, dsn: str) -> None:
         self._dsn = dsn
 
-    def submit(self, conversation_id: UUID, owner: str, request_id: UUID, question: str) -> Job | None:
+    def submit(
+        self, conversation_id: UUID, owner: str, request_id: UUID, question: str, *, input_guard_mode: str | None = None,
+    ) -> Job | None:
         with psycopg.connect(self._dsn, connect_timeout=5) as db:
             if db.execute(
                 "SELECT id FROM conversations WHERE id = %s AND owner_digest = %s FOR UPDATE",
@@ -83,8 +87,8 @@ class JobStore:
                 job_id = uuid4()
                 is_head = _head(db, conversation_id) is None
                 db.execute(
-                    "INSERT INTO jobs (id, conversation_id, request_id, question) VALUES (%s, %s, %s, %s)",
-                    (job_id, conversation_id, request_id, question),
+                    "INSERT INTO jobs (id, conversation_id, request_id, question, input_guard_mode) VALUES (%s, %s, %s, %s, %s)",
+                    (job_id, conversation_id, request_id, question, input_guard_mode),
                 )
                 if is_head:
                     _schedule(db, job_id)
@@ -121,13 +125,17 @@ class JobStore:
                 UPDATE jobs SET status = 'running', attempts = attempts + 1, lease_id = %s,
                     leased_until = clock_timestamp() + %s * interval '1 second'
                 WHERE id = %s AND status = 'queued' AND signal_at <= clock_timestamp()
-                RETURNING question
+                RETURNING question, request_id, input_guard_mode
                 """,
                 (lease_id, LEASE_SECONDS, job_id),
             ).fetchone()
             if row is None:
                 return None
-            return Claim(job_id, conversation_id, lease_id, row[0], read_turn_context(db, conversation_id, position))
+            question, request_id, mode = row
+            return Claim(
+                job_id, conversation_id, lease_id, question, read_turn_context(db, conversation_id, position),
+                request_id, mode,
+            )
 
     def complete(self, claim: Claim, answer: str, result: dict) -> bool:
         with psycopg.connect(self._dsn, connect_timeout=5) as db:

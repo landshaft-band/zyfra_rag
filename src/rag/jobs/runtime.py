@@ -31,7 +31,7 @@ class QueueSettings:
     name: str
 
     @classmethod
-    def from_environment(cls) -> QueueSettings:
+    def from_environment(cls) -> "QueueSettings":
         return cls(
             os.getenv("RAG_KAFKA_BOOTSTRAP_SERVERS", "127.0.0.1:9092"),
             os.getenv("RAG_REDIS_URL", "redis://127.0.0.1:6379/0"),
@@ -192,15 +192,18 @@ class RedisWorker:
         if claim is None:
             return
         with observation("rag.job") as trace:
+            metadata = {"job_id": str(job_id), "request_id": str(claim.request_id)}
             try:
-                result = serialize_answer(self._service.ask(claim.question, history=claim.context.history))
+                result = serialize_answer(self._service.ask(
+                    claim.question, history=claim.context.history, input_guard_mode=claim.input_guard_mode,
+                ))
             except Exception as error:
                 logger.warning("Job %s processing failed (%s)", job_id, type(error).__name__)
                 self._store.retry(claim)
-                trace(level="WARNING", metadata={"job_id": str(job_id), "outcome": "processing_error"})
+                trace(level="WARNING", metadata={**metadata, "outcome": "processing_error"})
             else:
                 saved = self._store.complete(claim, result.history_text(), result.model_dump(mode="json"))
-                trace(metadata={"job_id": str(job_id), "outcome": "saved" if saved else "stale_claim"})
+                trace(metadata={**metadata, "outcome": "saved" if saved else "stale_claim"})
 
 
 def run_worker(store: JobStore, service: AskService, settings: QueueSettings) -> None:

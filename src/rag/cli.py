@@ -70,7 +70,7 @@ def main() -> None:
 
     from .observability import flush
 
-    for name in ("rag.evaluation.rerank", "rag.observability", "rag.jobs"):
+    for name in ("rag.evaluation.rerank", "rag.observability", "rag.jobs", "rag.guardrails_checks"):
         logger = logging.getLogger(name)
         if not logger.handlers:
             logger.addHandler(logging.StreamHandler())

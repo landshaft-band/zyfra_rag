@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import os
 from dataclasses import dataclass
 from datetime import datetime
@@ -67,11 +69,19 @@ def migrate(dsn: str) -> tuple[str, ...]:
 def read_turn_context(connection: psycopg.Connection, conversation_id: UUID, position: int) -> TurnContext:
     messages = connection.execute(
         """
-        SELECT role, left(content, 6000) FROM messages
-        WHERE conversation_id = %s AND position < %s
-        ORDER BY position DESC LIMIT 6
+        SELECT m.role, left(m.content, 6000) FROM messages AS m
+        WHERE m.conversation_id = %s AND m.position < %s
+          AND NOT EXISTS (
+              SELECT 1 FROM messages AS answer
+              WHERE answer.conversation_id = m.conversation_id
+                AND answer.position = m.position + CASE WHEN m.role = 'user' THEN 1 ELSE 0 END
+                AND answer.position < %s
+                AND answer.role = 'assistant'
+                AND answer.result->>'status' = 'blocked'
+          )
+        ORDER BY m.position DESC LIMIT 6
         """,
-        (conversation_id, position),
+        (conversation_id, position, position),
     ).fetchall()
     return TurnContext(position, tuple(reversed(messages)))
 
